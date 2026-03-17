@@ -1,0 +1,12 @@
+# Optional: Render Blueprint — deploy backend from repo root
+# See https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: ai-resume-copilot-api
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false  # Set manually in Render dashboard
