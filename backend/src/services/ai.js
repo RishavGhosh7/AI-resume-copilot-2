@@ -230,14 +230,41 @@ Give 2-5 suggestions. Keep original, suggested, and reason concise. Types: impro
 }
 
 const RESUME_TEMPLATES = {
-  chronological: 'Structure the resume in reverse chronological order (most recent first). Emphasize dates and job progression. Use clear section headers: Experience, then Education, then Skills. Best for candidates with steady career growth.',
-  functional: 'Focus on skills and achievements rather than dates. Group experience by skill areas or themes. Put a strong Skills section early; experience can be summarized. Best for career changers or gaps.',
-  modern: 'Use a clean, contemporary format: concise bullet points, strong action verbs, quantifiable results. Keep summary short (2–3 lines). Section order: Summary, Experience, Skills, Education. Professional but not dense.',
-  minimal: 'One-page preferred. Minimal prose, maximum scannability: short bullets, clear headings, no filler. Prioritize relevance to the job. Tight summary; only most relevant experience and skills.',
+  chronological: 'Structure in reverse chronological order (most recent first). Emphasize dates and job progression. Sections: Education, Skills, Experience, Projects (include projects if relevant).',
+  functional: 'Skills and achievements first; group experience by themes when helpful. Strong Skills grid; still include dated experience and projects where they add credibility.',
+  modern: 'Concise bullets, strong action verbs, quantifiable results. Section order: Education, Skills, Experience, Projects.',
+  minimal: 'One-page focus: tight bullets, no filler; only the most relevant education, skills, experience, and 1–2 projects.',
 };
 
 /**
- * Resume Generator: personal info + experience + job description + template → full resume.
+ * Merge LLM output with profile so PDF header and links stay consistent when the model omits fields.
+ */
+function normalizeStructuredResume(structured, profile) {
+  const s = structured && typeof structured === 'object' ? structured : {};
+  const headerIn = s.header && typeof s.header === 'object' ? s.header : {};
+  const name =
+    headerIn.fullName ||
+    profile?.name ||
+    profile?.fullName ||
+    '';
+  return {
+    header: {
+      fullName: String(name).trim(),
+      phone: String(headerIn.phone ?? profile?.phone ?? '').trim(),
+      location: String(headerIn.location ?? profile?.location ?? '').trim(),
+      email: String(headerIn.email ?? profile?.email ?? '').trim(),
+      linkedin: String(headerIn.linkedin ?? profile?.linkedin ?? '').trim(),
+      github: String(headerIn.github ?? profile?.github ?? '').trim(),
+    },
+    education: Array.isArray(s.education) ? s.education : [],
+    skills: Array.isArray(s.skills) ? s.skills : [],
+    experience: Array.isArray(s.experience) ? s.experience : [],
+    projects: Array.isArray(s.projects) ? s.projects : [],
+  };
+}
+
+/**
+ * Resume Generator: personal info + experience + job description + template → full resume + structured data for PDF.
  */
 export async function generateResume(profile, jobDescription, template = '') {
   const templateKey = (template || 'chronological').toLowerCase().replace(/\s+/g, '');
@@ -249,12 +276,63 @@ export async function generateResume(profile, jobDescription, template = '') {
     messages: [
       {
         role: 'system',
-        content: `You are a professional resume writer. Generate a full, ATS-friendly resume tailored to the job description.
-Resume format / template to follow: ${templateGuide}
-Output a complete resume with: Summary, Experience (bullets), Skills, Education, (optional Certifications). Use clear section headers.
-Return ONLY valid JSON with no other text, no introduction, no markdown. Use this exact structure:
-{ "resume": "<full resume text, use \\n for line breaks>", "sections": { "summary": "...", "experience": "...", "skills": "...", "education": "..." } }
-Escape quotes inside strings. Put the full formatted resume in "resume"; you may omit empty sections.`
+        content: `You are a professional resume writer. Generate an ATS-friendly resume tailored to the job description.
+Template / emphasis: ${templateGuide}
+
+Return ONLY valid JSON, no markdown fences, no commentary. Use this exact top-level shape:
+{
+  "resume": "<full plain-text resume with \\n line breaks; traditional sections; suitable for editing>",
+  "structured": {
+    "header": {
+      "fullName": "<string>",
+      "phone": "<string>",
+      "location": "<string>",
+      "email": "<string>",
+      "linkedin": "<full URL or empty string>",
+      "github": "<full URL or empty string>"
+    },
+    "education": [
+      {
+        "degree": "<e.g. B.Tech Computer Science>",
+        "institution": "<school name>",
+        "location": "<city, country or region>",
+        "dateOrStatus": "<e.g. Completed, 2024 or Expected 2026>"
+      }
+    ],
+    "skills": [
+      { "category": "<e.g. Languages>", "items": ["<skill1>", "<skill2>"] }
+    ],
+    "experience": [
+      {
+        "title": "<job title>",
+        "company": "<company name>",
+        "dateRange": "<e.g. November 2025 – March 2026>",
+        "bullets": [
+          "<Start with action verb. Use **double asterisks** around important tech terms, metrics, and product names inside each string.>"
+        ]
+      }
+    ],
+    "projects": [
+      {
+        "name": "<project title>",
+        "link": { "label": "GitHub" | "Live Demo" | "Website" | "", "url": "<https://... or empty>" },
+        "bullets": ["<same **bold** convention as experience>"]
+      }
+    ]
+  },
+  "sections": { "summary": "", "experience": "", "skills": "", "education": "" }
+}
+
+Rules:
+- Fill "structured" completely from the profile and job description; align content with "resume".
+- The profile JSON may include "projects" as free text from the user: treat it as the primary source for structured.projects (names, links, bullets). Do not merge project work into experience unless it was a formal job or internship.
+- Use 3–8 skill categories with realistic items from the profile/JD.
+- 1–4 education entries; 0–5 experience entries; 0–6 projects (omit projects array or use [] if none fit).
+- For freshers or students with no paid/internship experience, set "experience" to [] and put academic work, personal projects, and open-source in "projects" with strong bullets (the PDF uses a dedicated Projects section).
+- Bullets: 3–6 per role/project when possible; include quantified impact where plausible.
+- In bullet strings, wrap key technologies, frameworks, and metrics with **...** for emphasis (e.g. **Python**, **AWS**, **40%**).
+- Escape double quotes inside JSON strings as \\".
+- "sections" may repeat condensed text or mirror parts of resume; omit empty section values.`
       },
       {
         role: 'user',
@@ -269,7 +347,13 @@ Escape quotes inside strings. Put the full formatted resume in "resume"; you may
   if (!raw) throw new Error('No generation response');
 
   try {
-    return parseJsonFromLLM(raw);
+    const parsed = parseJsonFromLLM(raw);
+    const structured = normalizeStructuredResume(parsed.structured, profile);
+    return {
+      resume: parsed.resume || '',
+      structured,
+      sections: parsed.sections && typeof parsed.sections === 'object' ? parsed.sections : {},
+    };
   } catch (e) {
     const trimmed = raw.trim();
     if (!trimmed) throw new Error('No generation response');
@@ -277,6 +361,10 @@ Escape quotes inside strings. Put the full formatted resume in "resume"; you may
       .replace(/^Here\s+is\s+(?:a\s+)?(?:tailored\s+)?resume[:\s]*/i, '')
       .replace(/^Here\s+is\s+your\s+resume[:\s]*/i, '')
       .trim();
-    return { resume: resumeText || trimmed, sections: {} };
+    return {
+      resume: resumeText || trimmed,
+      structured: normalizeStructuredResume(null, profile),
+      sections: {},
+    };
   }
 }

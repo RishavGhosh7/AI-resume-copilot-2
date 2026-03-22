@@ -28,11 +28,14 @@ export default function Dashboard() {
     phone: '',
     location: '',
     title: '',
+    linkedin: '',
+    github: '',
     skills: '',
     experience: '',
+    projects: '',
     education: '',
   });
-  const [gen, setGen] = useState({ resume: '', loading: false, error: '' });
+  const [gen, setGen] = useState({ resume: '', structured: null, loading: false, error: '' });
   const [resumeTemplate, setResumeTemplate] = useState('chronological');
 
   const RESUME_TEMPLATES = [
@@ -87,7 +90,7 @@ export default function Dashboard() {
 
   const runGenerate = async () => {
     if (!canGenerate) return;
-    setGen({ resume: '', loading: true, error: '' });
+    setGen({ resume: '', structured: null, loading: true, error: '' });
     try {
       const payload = {
         name: profile.fullName,
@@ -95,19 +98,23 @@ export default function Dashboard() {
         phone: profile.phone,
         location: profile.location,
         headline: profile.title,
+        linkedin: profile.linkedin,
+        github: profile.github,
         skills: profile.skills
           .split(',')
           .map((s) => s.trim())
           .filter(Boolean),
         experience: profile.experience,
+        projects: profile.projects,
         education: profile.education,
       };
       const res = await generateResume(payload, jobDescription, resumeTemplate);
       const text = res?.resume || '';
-      setGen({ resume: text, loading: false, error: '' });
+      const structured = res?.structured ?? null;
+      setGen({ resume: text, structured, loading: false, error: '' });
       if (text) setResumeText(text);
     } catch (e) {
-      setGen({ resume: '', loading: false, error: e?.message || 'Resume generation failed' });
+      setGen({ resume: '', structured: null, loading: false, error: e?.message || 'Resume generation failed' });
     }
   };
 
@@ -125,7 +132,7 @@ export default function Dashboard() {
           <div>
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white">AI Resume Generator</h2>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-              Provide a job description + your details. We’ll generate a tailored resume and you can download it as a PDF.
+              Provide a job description + your details. We’ll generate a tailored resume (structured for ATS) and you can download a classic one-page PDF layout.
             </p>
           </div>
           <div className="flex gap-3">
@@ -139,7 +146,7 @@ export default function Dashboard() {
             </button>
             <button
               onClick={() => {
-                setGen({ resume: '', loading: false, error: '' });
+                setGen({ resume: '', structured: null, loading: false, error: '' });
               }}
               className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg transition-colors border border-slate-200 dark:border-slate-600"
             >
@@ -223,6 +230,28 @@ export default function Dashboard() {
                   placeholder="City, Country"
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  LinkedIn (optional)
+                </label>
+                <input
+                  value={profile.linkedin}
+                  onChange={(e) => setProfile((p) => ({ ...p, linkedin: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="https://linkedin.com/in/..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  GitHub (optional)
+                </label>
+                <input
+                  value={profile.github}
+                  onChange={(e) => setProfile((p) => ({ ...p, github: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="https://github.com/..."
+                />
+              </div>
             </div>
 
             <div>
@@ -247,6 +276,22 @@ export default function Dashboard() {
                 rows={6}
                 className="w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-400 dark:placeholder:text-slate-500"
                 placeholder="Company — Role (Dates)\n- Achievement...\n- Achievement..."
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Projects (separate from experience)
+              </label>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-1.5">
+                Personal, academic, or open-source work — links optional. Shown as its own section in the PDF.
+              </p>
+              <textarea
+                value={profile.projects}
+                onChange={(e) => setProfile((p) => ({ ...p, projects: e.target.value }))}
+                rows={5}
+                className="w-full rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                placeholder="Project name — GitHub: https://...\n- What you built and impact...\n\nAnother project — Live demo: https://..."
               />
             </div>
 
@@ -294,10 +339,16 @@ export default function Dashboard() {
                     Use for Analysis
                   </button>
                   <button
-                    onClick={() => downloadResumePdf({ title: profile.fullName || 'resume', resumeText: gen.resume })}
+                    onClick={() =>
+                      downloadResumePdf({
+                        title: profile.fullName || 'resume',
+                        resumeText: gen.resume,
+                        structured: gen.structured,
+                      })
+                    }
                     disabled={!gen.resume}
                     className="px-3 py-1.5 text-xs font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                    title="Download as PDF"
+                    title="Download as structured PDF (classic layout) when available"
                   >
                     Download PDF
                   </button>
@@ -311,7 +362,7 @@ export default function Dashboard() {
                 placeholder="Your generated resume will appear here..."
               />
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-                You can edit the generated resume before downloading.
+                Edit the text for analysis or copying. Download PDF uses the structured layout from the model (sections, bullets, skills grid) when generation succeeds.
               </p>
             </div>
           </div>

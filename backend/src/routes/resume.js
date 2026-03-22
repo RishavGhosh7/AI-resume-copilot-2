@@ -7,7 +7,7 @@ const router = Router();
  * POST /api/resume/generate
  * Body: { profile: object, jobDescription?: string, template?: string }
  * template: chronological | functional | modern | minimal
- * Returns: { resume, sections? }
+ * Returns: { resume, structured, sections? } — structured drives the classic PDF layout on the client
  */
 router.post('/generate', async (req, res) => {
   try {
